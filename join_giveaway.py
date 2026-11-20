@@ -94,15 +94,15 @@ def check_and_join_once(page, user_data_str: str) -> tuple[str, str]:
             return "error", f"error (Join button / Joined banner not found at {page.url})"
 
         btn = page.locator("button.re-btn", has_text="Join giveaway").first
-        btn.scroll_into_view_if_needed(timeout=4000)
-        human_sleep(0.3, 0.7)
+        btn.wait_for(state="visible", timeout=5000)
+        human_sleep(0.4, 0.8)
 
-        box = btn.bounding_box(timeout=3000)
-        if box:
-            target_x = box["x"] + box["width"] * random.uniform(0.3, 0.7)
-            target_y = box["y"] + box["height"] * random.uniform(0.3, 0.7)
-            page.mouse.move(target_x, target_y, steps=random.randint(6, 12))
-            human_sleep(0.15, 0.4)
+        try:
+            btn.click(timeout=6000)
+        except Exception:
+            # If Angular re-rendered the button right as we clicked, re-query and click once more
+            fresh_btn = page.locator("button.re-btn", has_text="Join giveaway").first
+            fresh_btn.click(timeout=6000, force=True)
 
         btn.click(timeout=5000)
         log("[Alok49x] Clicked 'Join giveaway'. Waiting for confirmation...")
