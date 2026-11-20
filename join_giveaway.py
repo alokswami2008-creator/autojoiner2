@@ -12,8 +12,8 @@ from playwright.sync_api import sync_playwright
 BASE_URL = "https://rblx.earth"
 GIVEAWAY_URL = "https://rblx.earth/giveaway"
 
-CHECK_INTERVAL_SEC = 60         # Every 1 minute
-SESSION_DURATION_SEC = 5 * 60   # 5-minute loop
+CHECK_INTERVAL_SEC = 30 * 60        # Check every 30 minutes
+SESSION_DURATION_SEC = 350 * 60     # ~5 hours 50 mins (exits safely before GitHub's 6h job cap)
 
 DISCORD_WEBHOOK_URL = os.environ.get(
     "DISCORD_WEBHOOK_URL",
@@ -76,7 +76,7 @@ def check_and_join_once(page, user_data_str: str) -> tuple[str, str]:
             page.goto(GIVEAWAY_URL, wait_until="domcontentloaded")
             human_sleep(1.5, 2.5)
 
-        deadline = time.time() + 10
+        deadline = time.time() + 12
         found_button = False
 
         while time.time() < deadline:
@@ -100,11 +100,9 @@ def check_and_join_once(page, user_data_str: str) -> tuple[str, str]:
         try:
             btn.click(timeout=6000)
         except Exception:
-            # If Angular re-rendered the button right as we clicked, re-query and click once more
             fresh_btn = page.locator("button.re-btn", has_text="Join giveaway").first
             fresh_btn.click(timeout=6000, force=True)
 
-        btn.click(timeout=5000)
         log("[Alok49x] Clicked 'Join giveaway'. Waiting for confirmation...")
 
         confirm_deadline = time.time() + 12
@@ -147,7 +145,7 @@ def main() -> None:
             while time.time() < session_end:
                 cycle += 1
                 loop_start = time.time()
-                log(f"[Alok49x] --- Check #{cycle} ---")
+                log(f"[Alok49x] --- 30-Min Check #{cycle} ---")
 
                 status, detail = check_and_join_once(page, ALOK_USER_DATA)
                 log(f"[Alok49x] Result: {detail}")
@@ -165,12 +163,12 @@ def main() -> None:
                     last_reported_state = "error"
 
                 elapsed = time.time() - loop_start
-                sleep_time = max(5.0, CHECK_INTERVAL_SEC - elapsed)
+                sleep_time = max(10.0, CHECK_INTERVAL_SEC - elapsed)
                 if time.time() + sleep_time >= session_end:
                     break
                 time.sleep(sleep_time)
 
-            log("[Alok49x] 5-minute loop complete.")
+            log("[Alok49x] 6-hour loop window finished cleanly.")
 
         except Exception as exc:
             send_discord(f"❌ **[Alok49x]** error ({exc})")
