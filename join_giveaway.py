@@ -1,6 +1,9 @@
+import json
+import os
 import random
 import sys
 import time
+import urllib.request
 from datetime import datetime
 from pathlib import Path
 
@@ -9,6 +12,11 @@ from playwright.sync_api import sync_playwright
 BASE_URL = "https://rblx.earth"
 GIVEAWAY_URL = "https://rblx.earth/giveaway"
 
+DISCORD_WEBHOOK_URL = os.environ.get(
+    "DISCORD_WEBHOOK_URL",
+    "https://discord.com/api/webhooks/1573287473558061077/TWkaPHq1s9_hTUfFj5JBjbnqdtRAyH1OxdbFOygM8R0NiwVmJgzeXSU16ca3IEeXiOXx",
+).strip()
+
 # Alok49x session only
 ALOK_USER_DATA = '{"username":"Alok49x","_token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyYmx4VXNlcm5hbWUiOiJBbG9rNDl4IiwicmJseElkIjoiMTE0MDg1Mzk1NjUiLCJpYXQiOjE3OTUxNjM3MzR9.G6bOIKIorc1BZ5kYSQsmlx5zP9SDIXg2TH25u6alIGc","_robux":"1.43","_thumbnail":"https://tr.rbxcdn.com/30DAY-AvatarBust-051F4476AFFD563E8DFB42984F606CE5-Png/420/420/AvatarBust/Png/noFilter","_adminToken":""}'
 
@@ -16,6 +24,26 @@ ALOK_USER_DATA = '{"username":"Alok49x","_token":"eyJhbGciOiJIUzI1NiIsInR5cCI6Ik
 def log(msg: str) -> None:
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{now}] {msg}", flush=True)
+
+
+def send_discord(message: str) -> None:
+    if not DISCORD_WEBHOOK_URL or "discord.com/api/webhooks/" not in DISCORD_WEBHOOK_URL:
+        return
+    try:
+        payload = json.dumps({"content": message}).encode("utf-8")
+        req = urllib.request.Request(
+            DISCORD_WEBHOOK_URL,
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "User-Agent": "Mozilla/5.0",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            log(f"[Discord] Sent notification (HTTP {resp.status}).")
+    except Exception as exc:
+        log(f"[Discord] Failed to send notification: {exc}")
 
 
 def human_sleep(min_sec: float, max_sec: float) -> None:
@@ -37,9 +65,9 @@ def is_already_joined(page) -> bool:
     return joined_status.count() > 0 and joined_status.first.is_visible()
 
 
-def try_join_giveaway(user_data_str: str, headless: bool = True) -> str:
+def try_join_giveaway(user_data_str: str, headless: bool = True) -> tuple[str, str]:
     """
-    Returns one of:
+    Returns (status, detail_message) where status is one of:
       - "already_joined"
       - "joined"
       - "failed"
@@ -81,7 +109,7 @@ def try_join_giveaway(user_data_str: str, headless: bool = True) -> str:
             while time.time() < deadline:
                 if is_already_joined(page):
                     log("[Alok49x] Status: Joined already ('You're in this draw. Good luck!').")
-                    return "already_joined"
+                    return "already_joined", "Already in this draw."
 
                 btn = page.locator("button.re-btn", has_text="Join giveaway").first
                 if btn.count() > 0 and btn.is_visible() and btn.is_enabled():
@@ -91,8 +119,9 @@ def try_join_giveaway(user_data_str: str, headless: bool = True) -> str:
                 time.sleep(0.5)
 
             if not found_button:
-                log(f"[Alok49x] Status: Could not find Join button or Joined banner (URL: {page.url}).")
-                return "failed"
+                msg = f"Could not find Join button or Joined banner (URL: {page.url})."
+                log(f"[Alok49x] Status: {msg}")
+                return "failed", msg
 
             btn = page.locator("button.re-btn", has_text="Join giveaway").first
             btn.scroll_into_view_if_needed(timeout=5000)
@@ -113,22 +142,33 @@ def try_join_giveaway(user_data_str: str, headless: bool = True) -> str:
                 if is_already_joined(page):
                     log("[Alok49x] Status: Joined! ('You're in this draw. Good luck!').")
                     human_sleep(1.0, 2.0)
-                    return "joined"
+                    return "joined", "Successfully joined the new giveaway draw!"
                 time.sleep(0.5)
 
-            log("[Alok49x] Status: Clicked button, but confirmation banner did not appear within 15s.")
-            return "failed"
+            msg = "Clicked Join button, but confirmation banner did not appear within 15s."
+            log(f"[Alok49x] Status: {msg}")
+            return "failed", msg
 
         except Exception as exc:
-            log(f"[Alok49x] Error during attempt: {exc}")
-            return "failed"
+            msg = f"Error: {exc}"
+            log(f"[Alok49x] {msg}")
+            return "failed", msg
         finally:
             context.close()
 
 
 def main() -> None:
-    status = try_join_giveaway(user_data_str=ALOK_USER_DATA, headless=True)
-    sys.exit(0 if status in ("joined", "already_joined") else 1)
+    status, detail = try_join_giveaway(user_data_str=ALOK_USER_DATA, headless=True)
+
+    if status == "joined":
+        send_discord(f"✅ **[Alok49x]** {detail}")
+        sys.exit(0)
+    elif status == "already_joined":
+        send_discord(f"ℹ️ **[Alok49x]** {detail}")
+        sys.exit(0)
+    else:
+        send_discord(f"❌ **[Alok49x]** Giveaway check failed — {detail}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
